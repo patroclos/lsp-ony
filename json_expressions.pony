@@ -208,13 +208,9 @@ class val TravForEach is JTraversal
     new val create(sub: JTraversal = NoTraversal) => _subTrav = sub
 
     // overriding operators to apply to children of the array
-    fun val mul(t: JTraversal): JTraversal =>
-        @printf[I32]("A\n".cstring())
-        TravForEach(_subTrav * t)
+    fun val mul(t: JTraversal): JTraversal => TravForEach(_subTrav * t)
 
-    fun val div(alt: JTraversal): JTraversal =>
-        @printf[I32]("B\n".cstring())
-        TravForEach(_subTrav / alt)
+    fun val div(alt: JTraversal): JTraversal => TravForEach(_subTrav / alt)
 
     fun apply(v: J): (J | NotSet) =>
         match v
