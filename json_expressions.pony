@@ -4,18 +4,46 @@ use pc = "collections/persistent"
 
 trait val JExpr
     fun json(): JsonType
-    fun string(): String =>
-        let j = json()
-        match j
-        | let j': JsonArray => j'.string()
-        | let j': JsonObject => j'.string()
-        | let j': (F64 | I64 | Bool | None | String) => j'.string()
-        end
+    fun string(): String val
 
-type J is (JExpr | String | I64 | F64 | Bool | None)
+// this can't be (JExpr | ...) instead of (JObj | JArr | ...), until [this](https://github.com/ponylang/ponyc/issues/3096) is fixed
+type J is (JObj | JArr | String | I64 | F64 | Bool | None)
 
 primitive NotSet is Stringable
-    fun string(): String iso^ => "NotSet".string()
+    fun string(): String iso ^ => "NotSet".string()
+
+primitive JEq
+    fun apply(a: (J | NotSet), b: (J | NotSet)): Bool =>
+        match (a, b)
+        | (let a': JObj, let b': JObj) =>
+            if a'.data.size() != b'.data.size() then return false end
+            for (k, v) in a'.data.pairs() do
+                try
+                    if JEq(b'.data(k)?, v) == false then return false end
+                else return false
+                end
+            end
+            true
+        | (let a': JArr, let b': JArr) =>
+            if a'.data.size() != b'.data.size() then return false end
+            var i: USize = 0
+            while i < a'.data.size() do
+                try 
+                    if JEq(a'.data(i)?, b'.data(i)?) == false then
+                        return false
+                    end
+                else return false end
+                i = i + 1
+            end
+            true
+        | (let a': I64, let b': I64) => a' == b'
+        | (let a': F64, let b': F64) => a' == b'
+        | (let a': String, let b': String) => a' == b'
+        | (let a': Bool, let b': Bool) => a' == b'
+        | (None, None) => true
+        | (NotSet, NotSet) => true
+        else false
+        end
 
 primitive JParse
     fun apply(json: JsonType): J =>
@@ -43,48 +71,55 @@ primitive JArrParse
         JArr(data)
 
 class val JObj is JExpr
-    let _data: pc.Map[String, J]
+    let data: pc.Map[String, J]
 
-    new val create(data: pc.Map[String, J] = pc.Map[String, J]) =>
-        _data = data
+    new val create(data': pc.Map[String, J] = pc.Map[String, J]) =>
+        data = data'
 
     new box from_iter(it: Iterator[(String val, J)]) =>
-        _data = pc.Map[String, J].concat(it)
+        data = pc.Map[String, J].concat(it)
 
     fun apply(key: String val): (J | NotSet) =>
-        if _data.contains(key) then try _data(key)? else NotSet end else NotSet end
+        if data.contains(key) then try data(key)? else NotSet end else NotSet end
     
-    fun json(): JsonType =>
-        let obj = JsonObject(_data.size())
-        for (k, v) in _data.pairs() do
+    fun json(): JsonType => json_object()
+    
+    fun json_object(): JsonObject =>
+        let obj = JsonObject(data.size())
+        for (k, v) in data.pairs() do
             obj.data(k) = match v
                        | let j: JsonType => j
                        | let j: JExpr => j.json()
                        end
         end
         obj
+    
+    fun string(): String val => json_object().string()
 
     fun mul(k: String, v: J): JObj =>
-        JObj(_data(k) = v)
+        JObj(data(k) = v)
     
-    fun box div(k: String): JObjLookup => JObjLookup(this, k)
-
-
 class val JArr is JExpr
-    let _data: pc.Vec[J]
+    let data: pc.Vec[J]
 
-    new val create(data: pc.Vec[J] = pc.Vec[J]) =>
-        _data = data
+    new val create(data': pc.Vec[J] = pc.Vec[J]) =>
+        data = data'
 
     new box from_iter(it: Iterator[J]) =>
-        _data = pc.Vec[J].concat(it)
+        data = pc.Vec[J].concat(it)
+    
+    fun apply(i: USize): J ? => data(i)?
+
+    fun values(): Iterator[J] => data.values()
     
     fun add(v: J): JArr =>
-        JArr(_data.push(v))
+        JArr(data.push(v))
     
-    fun json(): JsonType =>
-        let arr = JsonArray(_data.size())
-        for v in _data.values() do
+    fun json(): JsonType => json_array()
+
+    fun json_array(): JsonArray =>
+        let arr = JsonArray(data.size())
+        for v in data.values() do
             let v' = match v
                 | let j: JsonType => j
                 | let j: JExpr => j.json()
@@ -93,41 +128,16 @@ class val JArr is JExpr
         end
         arr
 
-trait box JLookup
-    fun is_set(): Bool
-    fun apply(): (J | NotSet)
-    fun div(key: String val): JLookup
+    fun string(): String val => json_array().string()
 
-class box JLookupEmpty is JLookup
-    fun is_set(): Bool => false
-    fun apply(): (J | NotSet) => NotSet
-    fun div(key: String val): JLookup => JLookupEmpty
-
-class box JObjLookup is JLookup
-    let _obj: JObj box
-    let _key: String val
-
-    new box create(obj: JObj box, key: String val) =>
-        _obj = obj
-        _key = key
-    
-    fun apply(): (J | NotSet) => _obj(_key)
-
-    fun is_set(): Bool => try apply() as NotSet ; false else true end
-
-    fun div(k: String): JLookup =>
-        try
-            match apply() as J
-            | let f: JObj => JObjLookup(f, k)
-            else JLookupEmpty
-            end
-        else JLookupEmpty
-        end
+// TRAVERSALS / LENSES
 
 trait val JTraversal
     fun apply(v: J): (J | NotSet)
     fun update(input: J, value: J): (J | NotSet)
-    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+    fun val mul(t: JTraversal): JTraversal// => TravCombine(this, t)
+
+    fun val div(alt: JTraversal): JTraversal //=> TravChoice(this, alt)
 
 class val TravCombine is JTraversal
     let _a: JTraversal
@@ -135,6 +145,11 @@ class val TravCombine is JTraversal
     new val create(a: JTraversal, b: JTraversal) =>
         _a = a
         _b = b
+
+    //fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+    fun val mul(t: JTraversal): JTraversal => TravCombine(_a, _b * t)
+
+    fun val div(alt: JTraversal): JTraversal => TravCombine(_a, _b / alt)
     
     fun apply(v: J): (J | NotSet) =>
         match _a(v)
@@ -154,6 +169,10 @@ class val TravObjKey is JTraversal
     new val create(key: String val) =>
         _key = key
 
+    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+
+    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
+
     fun apply(v: J): (J | NotSet) =>
         match v
         | let v': JObj => v'(_key)
@@ -162,10 +181,77 @@ class val TravObjKey is JTraversal
     
     fun update(input: J, value: J): (J | NotSet) =>
         try (input as JObj) * (_key, value) else NotSet end
+
+class val TravChoice is JTraversal
+    let _a: JTraversal
+    let _b: JTraversal
+
+    new val create(a: JTraversal, b: JTraversal) => (_a, _b) = (a, b)
+
+    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+
+    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
+
+    fun apply(v: J): (J | NotSet) =>
+        match _a(v)
+        | let j: J => j
+        | NotSet => _b(v)
+        end
     
+    fun update(input: J, value: J): (J | NotSet) =>
+        match _a.update(input, value)
+        | let out: J => out
+        | NotSet => _b.update(input, value)
+        end
+
+class val TravForEach is JTraversal
+    let _subTrav: JTraversal
+    new val create(sub: JTraversal = NoTraversal) => _subTrav = sub
+
+    // overriding operators to apply to children of the array
+    fun val mul(t: JTraversal): JTraversal =>
+        @printf[I32]("A\n".cstring())
+        TravForEach(_subTrav * t)
+
+    fun val div(alt: JTraversal): JTraversal =>
+        @printf[I32]("B\n".cstring())
+        TravForEach(_subTrav / alt)
+
+    fun apply(v: J): (J | NotSet) =>
+        match v
+        | let arr: JArr =>
+            var data: pc.Vec[J] = pc.Vec[J]
+            for elem in arr.values() do
+                match _subTrav(elem)
+                | NotSet => None
+                | let e': J => data = data.push(e')
+                end
+            end
+            JArr(data)
+        else NotSet
+        end
+    
+    fun update(input: J, value: J): (J | NotSet) =>
+        match input
+        | let arr: JArr =>
+            var data: pc.Vec[J] = pc.Vec[J]
+            for elem in arr.values() do
+                match _subTrav.update(elem, value)
+                | NotSet => None
+                | let e': J => data = data.push(e')
+                end
+            end
+            JArr(data)
+        else NotSet
+        end
+
 class val NoTraversal is JTraversal
     fun apply(v: J): (J | NotSet) => v
     fun update(i: J, v: J) : (J | NotSet) => v
+
+    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+
+    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
     // ?
 
 class val Setter
@@ -199,157 +285,19 @@ class val JLens
     fun mul(key: String val): JLens =>
         JLens(_traversal * TravObjKey(key))
     
+    fun div(alt: JLens): JLens =>
+        JLens(_traversal.div(alt._traversal))
+    
     fun eq(value: J): Setter =>
         Setter(_traversal, value)
 
-/*
-use "json"
-use "itertools"
-use pc = "collections/persistent"
-
-trait val JExpr
-    fun json(): JsonType
-    fun string(): String =>
-        let j = json()
-        match j
-        | let j': JsonArray => j'.string()
-        | let j': JsonObject => j'.string()
-        | let j': (F64 | I64 | Bool | None | String) => j'.string()
-        end
-
-type J is (JExpr | String | I64 | F64 | Bool | None)
-
-primitive NotSet is Stringable
-    fun string(): String iso^ => "NotSet".string()
-
-primitive JParse
-    fun apply(json: JsonType): J =>
-        match json
-        | let v: (I64 | F64 | String | Bool | None) => v
-        | let j: JsonObject ref => JObjParse(j)
-        | let j: JsonArray ref => JArrParse(j)
-        end
-
-primitive JObjParse
-    fun apply(json: JsonObject ref): JObj val =>
-        var data = pc.Map[String, J]
-        for (k, v) in json.data.pairs() do
-            data = data(k) = JParse(v)
-        end
-
-        JObj(data)
-
-primitive JArrParse
-    fun apply(json: JsonArray ref): JArr val =>
-        var data = pc.Vec[J]
-        for v in json.data.values() do
-            data = data.push(JParse(v))
-        end
-        JArr(data)
-
-class val JObj is JExpr
-    let _data: pc.Map[String, J]
-
-    new val create(data: pc.Map[String, J] = pc.Map[String, J]) =>
-        _data = data
-
-    new box from_iter(it: Iterator[(String val, J)]) =>
-        _data = pc.Map[String, J].concat(it)
-
-    fun apply(key: String val): (J | NotSet) =>
-        if _data.contains(key) then try _data(key)? else NotSet end else NotSet end
+    fun elements(): JLens =>
+        JLens(_traversal * TravForEach)
     
-    fun json(): JsonType =>
-        let obj = JsonObject(_data.size())
-        for (k, v) in _data.pairs() do
-            obj.data(k) = match v
-                       | let j: JsonType => j
-                       | let j: JExpr => j.json()
-                       end
+    fun equals(a: J, b: J, include_unset: Bool = true): Bool =>
+        let a' = apply(a)
+        let b' = apply(b)
+        match (a', b')
+        | (NotSet, NotSet) => include_unset
+        else JEq(apply(a), apply(b))
         end
-        obj
-
-    fun mul(k: String, v: J): JObj =>
-        JObj(_data(k) = v)
-    
-    fun box div(k: String): JObjLookup => JObjLookup(this, k)
-
-
-class val JArr is JExpr
-    let _data: pc.Vec[J]
-
-    new val create(data: pc.Vec[J] = pc.Vec[J]) =>
-        _data = data
-
-    new box from_iter(it: Iterator[J]) =>
-        _data = pc.Vec[J].concat(it)
-    
-    fun add(v: J): JArr =>
-        JArr(_data.push(v))
-    
-    fun json(): JsonType =>
-        let arr = JsonArray(_data.size())
-        for v in _data.values() do
-            let v' = match v
-                | let j: JsonType => j
-                | let j: JExpr => j.json()
-                end
-            arr.data.push(v')
-        end
-        arr
-
-trait box JLookup
-    fun is_set(): Bool
-    fun apply(): (J | NotSet)
-    fun div(key: String val): JLookup
-
-class box JLookupEmpty is JLookup
-    fun is_set(): Bool => false
-    fun apply(): (J | NotSet) => NotSet
-    fun div(key: String val): JLookup => JLookupEmpty
-
-class box JObjLookup is JLookup
-    let _obj: JObj box
-    let _key: String val
-
-    new box create(obj: JObj box, key: String val) =>
-        _obj = obj
-        _key = key
-    
-    fun apply(): (J | NotSet) => _obj(_key)
-
-    fun is_set(): Bool => try apply() as NotSet ; false else true end
-
-    fun div(k: String): JLookup =>
-        try
-            match apply() as J
-            | let f: JObj => JObjLookup(f, k)
-            else JLookupEmpty
-            end
-        else JLookupEmpty
-        end
-
-class TestCase
-    fun ref do_stuff(): JsonType =>
-        (JObj
-            * ("capabilities", JObj 
-                * ("textDocumentSync", JObj
-                    * ("openClose", true)
-                    * ("change", I64(1))
-                    * ("save", JObj
-                        * ("includeText", true)
-                      )
-                  )
-                * ("completionProvider", JObj
-                    * ("resolveProvider", true)
-                  )
-              )
-        )
-        (JObj
-            * ("foo", "bar")
-            * ("nested", JObj
-                * ("value", I64(5))
-              )
-            * ("some_array", JArr + true + false + None)
-        ).json()
-        */

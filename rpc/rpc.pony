@@ -23,6 +23,16 @@ primitive RPC
         
         Response(json.data("id")? as RpcId, result)
     
+    fun val is_response(json: JsonDoc): Bool =>
+        try
+            let j = json.data as JsonObject
+            if j.data.contains("result") or j.data.contains("error") then
+                true
+            else false
+            end
+        else false
+        end
+    
     fun val parse_error(err: JsonObject ref): RpcError ref ? =>
         let code = err.data("code")? as I64
         let message = err.data("message")? as String

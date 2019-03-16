@@ -1,0 +1,12 @@
+{
+  "deps": [
+    {
+      "type": "local",
+      "local-path": "../ponycc"
+    },
+    {
+      "type": "local",
+      "local-path": "rpc"
+    }
+  ]
+}

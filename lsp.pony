@@ -1,4 +1,4 @@
-use rpc = "./rpc"
+use rpc = "rpc"
 
 trait val HeaderField
     fun is_required(): Bool => false
@@ -12,9 +12,11 @@ primitive ContentType is HeaderField
 
 interface ref LspNotify
     fun ref requested(req: rpc.Request ref): None
+    fun ref responded(res: rpc.Response ref): None
 
 class NoLspNotify is LspNotify
     fun ref requested(req: rpc.Request ref) => None
+    fun ref responded(res: rpc.Response ref) => None
 
 interface ref LspWriter
     fun ref send(obj: rpc.RpcObject ref)
