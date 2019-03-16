@@ -1,5 +1,4 @@
 use "json"
-use "itertools"
 use pc = "collections/persistent"
 
 trait val JExpr
