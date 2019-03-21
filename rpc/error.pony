@@ -1,22 +1,20 @@
-use "json"
+use "../jay"
 
-class RpcError
+class val RpcError
     let code: I64 val
     let message: String val
-    let data: JsonType
+    let data: J
 
-    new create(code': I64, message': String val, data': JsonType = None) =>
+    new val create(code': I64, message': String val, data': J = None) =>
         (code, message, data) = (code', message', data')
     
-    fun ref with_data(data': JsonType): RpcError ref^ =>
+    fun with_data(data': J): RpcError val^ =>
         RpcError(code, message, data')
     
-    fun ref with_message(message': String val): RpcError ref^ =>
+    fun val with_message(message': String val): RpcError val^ =>
         RpcError(code, message', data)
     
-    fun ref json(): JsonObject =>
-        let obj = JsonObject
-        obj.data("code") = code
-        obj.data("message") = message
-        obj.data("data") = data
-        obj
+    fun val json(): JObj => JObj
+        * ("code", code)
+        * ("message", message)
+        * ("data", data)

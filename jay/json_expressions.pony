@@ -45,6 +45,7 @@ primitive JEq
         end
 
 primitive JParse
+    fun from_string(str: String): J ? => JParse((JsonDoc .> parse(str)?).data)
     fun apply(json: JsonType): J =>
         match json
         | let v: (I64 | F64 | String | Bool | None) => v
@@ -95,8 +96,11 @@ class val JObj is JExpr
     
     fun string(): String val => json_object().string()
 
-    fun mul(k: String, v: J): JObj =>
-        JObj(data(k) = v)
+    fun mul(k: String, v: (J | NotSet)): JObj =>
+        match v | let j: J =>
+            JObj(data(k) = j)
+        else JObj(try data.remove(k)? else data end)
+        end
     
 class val JArr is JExpr
     let data: pc.Vec[J]
@@ -134,9 +138,11 @@ class val JArr is JExpr
 trait val JTraversal
     fun apply(v: J): (J | NotSet)
     fun update(input: J, value: J): (J | NotSet)
-    fun val mul(t: JTraversal): JTraversal// => TravCombine(this, t)
+    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
 
-    fun val div(alt: JTraversal): JTraversal //=> TravChoice(this, alt)
+    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
+
+    fun val op_or(alt: JTraversal): JTraversal => TravChoice(this, alt)
 
 class val TravCombine is JTraversal
     let _a: JTraversal
@@ -145,7 +151,7 @@ class val TravCombine is JTraversal
         _a = a
         _b = b
 
-    //fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
+    // override to defer combination control to _b
     fun val mul(t: JTraversal): JTraversal => TravCombine(_a, _b * t)
 
     fun val div(alt: JTraversal): JTraversal => TravCombine(_a, _b / alt)
@@ -168,10 +174,6 @@ class val TravObjKey is JTraversal
     new val create(key: String val) =>
         _key = key
 
-    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
-
-    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
-
     fun apply(v: J): (J | NotSet) =>
         match v
         | let v': JObj => v'(_key)
@@ -186,10 +188,6 @@ class val TravChoice is JTraversal
     let _b: JTraversal
 
     new val create(a: JTraversal, b: JTraversal) => (_a, _b) = (a, b)
-
-    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
-
-    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
 
     fun apply(v: J): (J | NotSet) =>
         match _a(v)
@@ -240,14 +238,27 @@ class val TravForEach is JTraversal
         else NotSet
         end
 
+class val TravMap is JTraversal
+    let _fn: {(J): (J | NotSet)} val
+
+    new val create(fn: {(J): (J | NotSet)} val) =>
+        _fn = fn
+
+    fun apply(v: J): (J | NotSet) => _fn(v)
+
+    fun update(input: J, value: J): (J | NotSet) => _fn(value)
+
+"""
+    ```pony
+    let lens = (JLens * "one" * "two").map({(j) => try (j as I64) * 2 else NotSet end})
+    ```
+"""
+
+
 class val NoTraversal is JTraversal
     fun apply(v: J): (J | NotSet) => v
     fun update(i: J, v: J) : (J | NotSet) => v
 
-    fun val mul(t: JTraversal): JTraversal => TravCombine(this, t)
-
-    fun val div(alt: JTraversal): JTraversal => TravChoice(this, alt)
-    // ?
 
 class val Setter
     let _traversal: JTraversal
@@ -263,8 +274,10 @@ class val Setter
 class val JLens
     let _traversal: JTraversal
 
-    new val create(trav: JTraversal = NoTraversal) =>
-        _traversal = trav
+    fun trav(): JTraversal val => _traversal
+
+    new val create(trav': JTraversal = NoTraversal) =>
+        _traversal = trav'
     
     fun apply(input: J): (J | NotSet) =>
         _traversal(input)
@@ -283,11 +296,26 @@ class val JLens
     fun div(alt: JLens): JLens =>
         JLens(_traversal.div(alt._traversal))
     
+    fun op_or(alt: JLens): JLens =>
+        JLens(_traversal or alt._traversal)
+    
+    // this will become useful when we have more than one way to handle arrays, so you can work on each element and then aggregate or pick one
+    fun op_and(t: JLens): JLens =>
+        JLens(TravCombine(_traversal, t._traversal))
+    
     fun eq(value: J): Setter =>
         Setter(_traversal, value)
 
     fun elements(): JLens =>
         JLens(_traversal * TravForEach)
+    
+    fun map[A: J = J](fn: {(A): (J | NotSet)} val): JLens =>
+        let fn': {(J): (J | NotSet)} val = {(v: J): (J | NotSet) => match v | let v': A => fn(v') else NotSet end}
+        JLens(_traversal * TravMap(fn'))
+    
+    fun ofType[A: J](): JLens =>
+        let typeFilter = {(v: J): (J | NotSet) => match v | let _: A => v else NotSet end}
+        JLens(_traversal * TravMap(typeFilter))
     
     fun equals(a: J, b: J, include_unset: Bool = true): Bool =>
         let a' = apply(a)

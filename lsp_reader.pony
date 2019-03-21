@@ -1,5 +1,5 @@
 use "logger"
-use "json"
+use "./jay"
 use "buffered"
 use "collections"
 
@@ -59,8 +59,13 @@ class LspReader is InputNotify
             let block_size = _headers("Content-Length")? as USize
             let block = _rb.block(block_size)?
 
+            _headers.clear()
+            _mode = _ModeReadHeader
+
             let block_str = String.from_array(consume block)
-            let block_json = JsonDoc .> parse(block_str)?
+            let block_json = try JParse.from_string(block_str)?
+                else @printf[I32]("Failed parsing block: %s\n".cstring(), block_str.cstring()) ; None
+                end
 
             let obj = if rpc.RPC.is_response(block_json) then rpc.RPC.parse_response(block_str)? else rpc.RPC.parse_req(block_str)? end
 
@@ -68,7 +73,4 @@ class LspReader is InputNotify
             | let req: rpc.Request => _lspNotify.requested(req)
             | let res: rpc.Response => _lspNotify.responded(res)
             end
-
-            _headers.clear()
-            _mode = _ModeReadHeader
         end

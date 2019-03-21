@@ -1,45 +1,46 @@
-use "json"
+use "../jay"
 
 type RpcId is (String val | I64 val | None)
 
 primitive RPC
     fun val parse_req(str: String val): Request ? =>
-        let doc : JsonDoc = JsonDoc .> parse(str)?
-        let json : JsonObject = doc.data as JsonObject
-        if try json.data("jsonrpc")? as String else "" end != "2.0" then error end
+        let json: JObj = JParse.from_string(str)? as JObj
+        if (json("jsonrpc") as String != "2.0") then error end
+
+        let id = match json("id")
+            | NotSet => None
+            | let rpcId: RpcId => rpcId
+            else error end
         
-        Request(try json.data("id")? else None end as RpcId, json.data("method")? as String, try json.data("params")? else None end as RpcParams)
+        Request(id,
+                json("method") as String,
+                try json("params") as RpcParams else None end)
 
     fun val parse_response(str: String val): Response ? =>
-        let doc : JsonDoc = JsonDoc .> parse(str)?
-        let json : JsonObject = doc.data as JsonObject
-        if try json.data("jsonrpc")? as String else "" end != "2.0" then error end
+        let json: JObj = JParse.from_string(str)? as JObj
+        if (json("jsonrpc") as String != "2.0") then error end
 
-        let result: (JsonType | RpcError ref) = try
-            json.data("result")?
-        else
-            RPC.parse_error(json.data("error")? as JsonObject)?
-        end
+        let result: (J | RpcError val) = try json("result") as J
+            else
+                RPC.parse_error(json("error") as JObj)?
+            end
         
         Response(json.data("id")? as RpcId, result)
     
-    fun val is_response(json: JsonDoc): Bool =>
+    fun val is_response(json: J): Bool =>
         try
-            let j = json.data as JsonObject
-            if j.data.contains("result") or j.data.contains("error") then
-                true
-            else false
-            end
+            let j = json as JObj
+            j.data.contains("result") or j.data.contains("error")
         else false
         end
     
-    fun val parse_error(err: JsonObject ref): RpcError ref ? =>
-        let code = err.data("code")? as I64
-        let message = err.data("message")? as String
-        let data = try err.data("data")? else None end
+    fun val parse_error(err: JObj box): RpcError val ? =>
+        let code = err("code") as I64
+        let message = err("message") as String
+        let data = try err("data") as J else None end
         RpcError(code, message, data)
 
 
 trait val RpcObject
     fun id(): RpcId
-    fun ref json(): JsonObject
+    fun json(): JObj

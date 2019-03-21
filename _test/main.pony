@@ -2,31 +2,53 @@ use "ponytest"
 use "files"
 use "glob"
 use "json"
+use "logger"
 use ".."
 
-actor Main is TestList
-    new create(env: Env) =>
-        let test = PonyTest(env, this)
-        let test_parser = try env.args(1)? == "json" else false end
-        if test_parser then
-            try
-                let auth = env.root as AmbientAuth
-                let test_root = FilePath(auth, Path.dir(__loc.file()))?
-                let cases = Glob.glob(test_root, "json_test_cases/*.json")
+primitive CompilerTestLogFormatter is LogFormatter
+    fun apply(msg: String, loc: SourceLoc): String => msg
 
-                env.out.print(cases.size().string())
-                for case_path in cases.values() do
-                    let file = OpenFile(case_path) as File
-                    test(TestJsonParserCase(file.read_string(file.size()), Path.base(case_path.path)))
-                end
-            else
-                env.out.print("Error occurred reading test cases")
-            end
+actor Main is TestList
+    let _env: Env
+    new create(env: Env) =>
+        _env = env
+        match try env.args(1)? else None end
+        | "json" => _test_json_parser()
+        | "compiler" => _test_compiler()
+        | None => PonyTest(env, this)
         end
+    
+    fun _test_compiler() =>
+        let log = StringLogger(Fine, _env.out, CompilerTestLogFormatter)
+        try
+            let auth = _env.root as AmbientAuth
+            let path = FilePath(auth, Path.join(Path.dir(__loc.file()), ".."))?
+            let ws = WorkspaceManager(path, auth, log)
+            ws.compile()
+        end
+
+
+    fun _test_json_parser() =>
+        let test = PonyTest(_env, this)
+        try
+            let auth = _env.root as AmbientAuth
+            let test_root = FilePath(auth, Path.dir(__loc.file()))?
+            let cases = Glob.glob(test_root, "json_test_cases/*.json")
+
+            _env.out.print(cases.size().string())
+            for case_path in cases.values() do
+                let file = OpenFile(case_path) as File
+                test(TestJsonParserCase(file.read_string(file.size()), Path.base(case_path.path)))
+            end
+        else
+            _env.out.print("Error occurred reading test cases")
+        end
+
     fun tag tests(test: PonyTest) =>
         test(TestLensAssign)
         test(TestLensChoice)
         test(TestLensArray)
+        test(TestLensMap)
         test(TestJsonEquality)
 
 class TestJsonParserCase is UnitTest

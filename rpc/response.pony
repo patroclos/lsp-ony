@@ -1,22 +1,17 @@
-use "json"
+use "../jay"
 
-class Response is RpcObject
+class val Response is RpcObject
     let _id: RpcId
-    let _result: (JsonType | RpcError ref)
+    let _result: (J | RpcError val)
 
-    new create(id': RpcId, result': (JsonType | RpcError ref)) =>
+    new val create(id': RpcId, result': (J | RpcError val)) =>
         (_id, _result) = (id', result')
     
     fun id(): RpcId => _id
-    fun result(): (this->JsonType | this->RpcError ref) => _result
+    fun result(): (this->J | this->RpcError val) => _result
 
-    fun ref json(): JsonObject =>
-        let obj = JsonObject
-        obj.data("jsonrpc") = "2.0"
-        obj.data("id") = id()
-        
-        match _result
-        | let err: RpcError ref => obj.data("error") = err.json()
-        | let res: JsonType => obj.data("result") = res
-        end
-        obj
+    fun json(): JObj => JObj
+        * ("jsonrpc", "2.0")
+        * ("id", id())
+        * ("result", try _result as J else NotSet end)
+        * ("error", try (_result as RpcError).json() else NotSet end)

@@ -1,10 +1,10 @@
 use "net"
 use rpc = "rpc"
 
-class SocketWriter is LspWriter
-    let _conn: TCPConnection ref
-    new create(conn': TCPConnection ref) =>
+actor SocketWriter is LspWriter
+    let _conn: TCPConnection tag
+    new create(conn': TCPConnection tag) =>
         _conn = conn'
     
-    fun ref send(obj: rpc.RpcObject ref): None =>
+    be send(obj: rpc.RpcObject val) =>
         _conn.write(_lsp_buffer(obj))

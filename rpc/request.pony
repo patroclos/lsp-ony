@@ -1,13 +1,13 @@
-use "json"
+use "../jay"
 
-type RpcParams is (JsonArray ref | JsonObject ref | None val)
+type RpcParams is (JArr val | JObj val | None val)
 
-class Request is RpcObject
+class val Request is RpcObject
     let _id: RpcId
     let _method: String val
     let _params: RpcParams
 
-    new create(id': RpcId, method': String val, params': RpcParams = None) =>
+    new val create(id': RpcId, method': String val, params': RpcParams = None) =>
         (_id, _method, _params) = (id', method', params')
 
     fun id() : RpcId => _id
@@ -16,20 +16,15 @@ class Request is RpcObject
 
     fun params() : this->RpcParams => _params
 
-    fun ref json(): JsonObject =>
-        let obj = JsonObject
-        obj.data("jsonrpc") = "2.0"
-        obj.data("method") = method()
-        if not is_notification() then
-            obj.data("id") = id()
-        end
-
-        match _params
-        | None => None
-        else
-            obj.data("params") = _params
-        end
-        obj
+    fun json(): JObj =>
+        JObj
+            * ("jsonrpc", "2.0")
+            * ("method", method())
+            * ("id", if is_notification() then NotSet else id() end)
+            * ("params", match _params
+                         | None => NotSet
+                         else params()
+                         end)
 
     fun box is_notification(): Bool =>
         match _id

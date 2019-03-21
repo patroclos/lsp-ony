@@ -1,5 +1,8 @@
 use "ponytest"
-use ".."
+use "../jay"
+
+use "files"
+use url = "../url"
 
 use rpc = "../rpc"
 
@@ -102,9 +105,11 @@ class TestLensArray is UnitTest
 
         let valueLens = (JLens.elements() * "value") / JLens
 
+        h.assert_true(JEq(valueLens("tester"), NotSet), "div operator be wrapped by element traversal")
+        h.assert_true(JEq((valueLens or JLens)("tester"), "tester"), "or operator should lift the context out of element traversal")
+
         var result': (J | NotSet) = NotSet
         try
-            h.log(valueLens(x).string())
             var result = valueLens(x) as JArr
             result' = result
             h.assert_eq[String](result(0)? as String, "markdown")
@@ -117,3 +122,17 @@ class TestLensArray is UnitTest
         else h.fail("failed with " + result'.string())
         end
     
+class TestLensMap is UnitTest
+    fun name(): String => "LensMap"
+
+    fun ref apply(h: TestHelper) =>
+        let a = JObj * ("rootPath", "c:\\Users\\Joshua")
+        let b = JObj * ("rootUri", "file:///c%3A/Users/Joshua")
+        let lens = ((JLens * "rootUri").map[String](UriToPath) or (JLens * "rootPath"))
+        //let lens =  (JLens * "rootPath") or (JLens * "rootUri").map[String](UriToPath)
+
+        try
+            h.assert_eq[String](lens(a) as String, "c:\\Users\\Joshua")
+            h.assert_eq[String](lens(b) as String, "c:\\Users\\Joshua")
+        else h.fail("I guess they weren't strings afterall"); h.log(lens(a).string()) ; h.log(lens(b).string())
+        end
