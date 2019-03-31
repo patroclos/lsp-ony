@@ -33,6 +33,8 @@ class val GotoVisitor is FrameVisitor[GotoVisitor, Goto]
 			frame.access_state({(s)(isolated) =>
 				if not s.cursor.is_inside(cursor, ast.pos().length()) then access_lifetime.reject() ; return consume s end
 
+				@printf[I32](isolated.type_decl()._2.string().cstring())
+
 				@printf[I32]("Hovering over %s\n".cstring(), ast.string().cstring())
 
 				let promise = Promise[DeclAst]

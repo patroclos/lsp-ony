@@ -76,6 +76,12 @@ primitive ResolveDecl[V: FrameVisitor[V, S], S: Any iso]
 				ResolveDecl[V, S](frame, frame.combined_scopes()(name)?, promise)
 			else promise.reject() ; Debug("[Reslv > Ref] rejected")
 			end
+		| let ast: TypeRef => try promise(ast.find_attached_val[TypeDecl]()?) else promise.reject() end
+		| let ast: FieldLetRef => try promise(ast.find_attached_val[FieldLet]()?) else promise.reject() end
+		| let ast: FieldVarRef => try promise(ast.find_attached_val[FieldVar]()?) else promise.reject() end
+		| let ast: FieldEmbedRef => try promise(ast.find_attached_val[FieldEmbed]()?) else promise.reject() end
+		| let ast: LocalLetRef => try promise(ast.find_attached_val[LocalLet]()?) else promise.reject() end
+		| let ast: LocalVarRef => try promise(ast.find_attached_val[LocalVar]()?) else promise.reject() end
 		| let ast: NominalType =>
 			Debug("[Reslv > Nominal]")
 			frame.find_type_decl(ast.package(), ast.name())
@@ -110,17 +116,35 @@ primitive ResolveMember
 // TODO: this needs to resolve definitions instead of types
 // eg. fun, be, let, var, embed, locallet, localvar, types (by nominal and sequences)
 primitive ResolveType[V: FrameVisitor[V, S], S: Any iso]
+	fun _resolve_attached[A: AST val](frame: IsFrame[V, S] val, promise: Promise[TypeDecl]) =>
+		try
+			ResolveType[V, S](frame, frame.ast().find_attached_val[A]()?, promise)
+		else
+			promise.reject()
+		end
+
 	fun apply(frame: IsFrame[V, S] val, ast': AST val, promise: Promise[TypeDecl]) =>
 		match ast'
 		| let ast: TypeDecl => promise(ast)
+		| let ast: This => promise(frame.type_decl()._2) // TODO: how does this behave in object literals?
 		| let ast: Id =>
 			Debug("[Reslv > Id]")
 			(let parent_frame, let parent_ast) = frame.parent()
 			ResolveType[V, S](parent_frame.isolated(), parent_ast, promise)
 			return
 				
+		| let ast: TypeRef => try promise(ast.find_attached_val[TypeDecl]()?) else promise.reject() end
+		// TODO refs: locallet, localvar, fieldlet, fieldvar, fieldembed
+		| let ast: LocalLetRef => _resolve_attached[LocalLet](frame, promise)
+		| let ast: LocalVarRef => _resolve_attached[LocalVar](frame, promise)
+		| let ast: ParamRef => _resolve_attached[Param](frame, promise)
+		| let ast: FieldLetRef => _resolve_attached[FieldLet](frame, promise)
+		| let ast: FieldVarRef => _resolve_attached[FieldVar](frame, promise)
+		| let ast: FieldEmbedRef => _resolve_attached[FieldEmbed](frame, promise)
+
 		| let ast: Field => ResolveType[V, S](frame, ast.field_type(), promise)
 		| let ast: Method => try ResolveType[V, S](frame, ast.return_type() as Type, promise) else promise.reject() end
+		| let ast: Param => try ResolveType[V, S](frame, ast.param_type() as Type, promise) else promise.reject() end
 		| let ast: Call =>
 			Debug("[Reslv > Call]")
 			ResolveType[V, S](frame.make_child_val(ast.callable()), ast.callable(), promise)

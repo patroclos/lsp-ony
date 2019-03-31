@@ -1,5 +1,6 @@
 use "promises"
 use "ponycc"
+use "ponycc/unreachable"
 use "ponycc/ast"
 use "ponycc/frame/stateful"
 
@@ -86,45 +87,123 @@ class val CompletionVisitor is FrameVisitor[CompletionVisitor, Completion]
 			let access_lifetime = Promise[None]
 			frame.await[None](access_lifetime, {(_,_)=>None})
 
-			frame.access_state({(s)(isolated) =>
-				if not s.cursor.is_inside(cursor, ast.pos().length()) then access_lifetime.reject() ; return consume s end
+			frame.access_state({(s)(isolated, access_lifetime) =>
 				// stop if we already have generated completions (eg. dont duplicate for Id and Ref(Id))
 				match s.ast | let _: AST => access_lifetime(None) ; return consume s end
 
+				if not s.cursor.is_inside(cursor, ast.pos().length()) then access_lifetime.reject() ; return consume s end
+
 				@printf[I32]("Completion context: %s\n".cstring(), ast.string().cstring())
-
-/*
-				let promise = Promise[DeclAst]
-				promise
-					.next[None]({(decl')(access_lifetime) =>
-						let cursor = decl'.pos().cursor()
-						let range = TextRange((cursor._1, cursor._2), (cursor._1, cursor._2 + decl'.pos().length()))
-
-						isolated.access_state({(s')=>
-							s'.locations.push((decl'.pos().source().path(), range))
-							access_lifetime(None)
-							consume s'
-						})
-					}, {()(access_lifetime)=>access_lifetime(None)})
-
-				ResolveDecl[CompletionVisitor, Completion](isolated, ast, promise)
-				*/
-				// TODO be smarter about member access etc
-				for (k, a) in isolated.combined_scopes().scope.pairs() do
-					let range =
-						match s.edit_cursor
-						| (let l: USize, let p: USize) => TextRange((l, p), (l, p))
-						else
-							(let lin, let pos) = ast.pos().cursor()
-							TextRange((lin, pos), (lin, pos + ast.pos().length()))
-						end
-					let edit = TextEdit(range, k)
-					let item = CompletionItem(k, try CompletionItemKinds(a)? else 0 end, k, edit)
-					s.completions.push(item)
+				match ast
+				| let ast': (Dot | Tilde | Chain) =>
+					let completion_promise = Promise[Array[CompletionItem] val]
+						.> next[None]({(completions)(access_lifetime) =>
+								isolated.access_state({(s)(access_lifetime) =>
+									s.completions.append(completions)
+									access_lifetime(None)
+									consume s
+								})
+							 })
+					CompleteMemberAccess(isolated, ast', completion_promise)
+				else
+					// TODO be smarter about member access etc
+					for (k, a) in isolated.combined_scopes().scope.pairs() do
+						let range =
+							match s.edit_cursor
+							| (let l: USize, let p: USize) => TextRange((l, p), (l, p))
+							else
+								(let lin, let pos) = ast.pos().cursor()
+								match ast
+								| let _: Dot => TextRange((lin, pos + 1), (lin, pos + 1))
+								else TextRange((lin, pos), (lin, pos + ast.pos().length()))
+								end
+							end
+						let edit = TextEdit(range, k)
+						let item = CompletionItem(k, try CompletionItemKinds(a)? else 0 end, k, edit)
+						s.completions.push(item)
+					end
+					access_lifetime(None)
 				end
-				access_lifetime(None)
-				
+
 				s.ast = ast
 				consume s
 			})
 		end
+	
+actor CompletionAggregator
+	var _items: Array[CompletionItem] trn = recover [] end
+	var _expect: USize = 0
+	let _promise: Promise[Array[CompletionItem] val]
+
+	new create(promise': Promise[Array[CompletionItem] val]) =>
+		_promise = promise'
+
+	be expect() => _expect = _expect + 1
+
+	be push(item: CompletionItem) =>
+		_items.push(item)
+		_expect = _expect - 1
+		check()
+
+	be check() =>
+		if _expect == 0 then
+			_promise(_items = recover trn [] end)
+		end
+
+primitive CompleteMemberAccess
+	fun apply(
+		frame: IsFrame[CompletionVisitor, Completion] box,
+		ast': (Dot | Tilde | Chain),
+		promise': Promise[Array[CompletionItem] val])
+	=>
+		let member_name = ast'.right()
+
+		// TODO fix this
+		(let lin, let pos) = ast'.pos().cursor()
+		(let rlin, let rpos) = match member_name | let id: Id => id.pos().cursor() else (lin, pos + ast'.pos().length()) end
+		let range = TextRange((rlin, rpos), (rlin, rpos))
+
+		match ast'.left()
+		| let pkgref: PackageRef =>
+			try
+				let package = pkgref.find_attached_tag[Package]()?
+				let agg = CompletionAggregator(promise')
+				package.access_type_decls({(decls')(agg, range) =>
+					for decl in decls'.values() do
+						agg.expect()
+						decl.access_type_decl({(decl)(agg, range) =>
+							let name = decl.name().value()
+
+							let kind = try CompletionItemKinds(decl)? else 0 end
+							let item = CompletionItem(name, kind, name, TextEdit(range, name))
+							agg.push(item)
+							decl
+						})
+					end
+					agg.check()
+				})
+			else
+				promise'.reject()
+			end
+		else
+			ResolveType[CompletionVisitor, Completion](
+				frame.isolated(),
+				ast'.left(),
+				Promise[TypeDecl] .> next[None]({(td)(range) =>
+					let items: Array[CompletionItem] trn = recover [] end
+					for member in (Array[(Field | Method)] .> concat(td.members().fields().values()) .> concat(td.members().methods().values())).values() do
+						let name = member.name().value()
+						let kind = try CompletionItemKinds(member)? else Unreachable(member.string()) ; 0 end
+						let item = CompletionItem(name, kind, name, TextEdit(range, name))
+						items.push(item)
+					end
+					promise'(consume items)
+				}))
+		end
+/*
+	TODO: Differentiate between completion contexts
+	Context MEMBER_ACCESS (dot, tilde, chain) ->
+																							left could be a USE ALIAS
+																							or something with members, like TypeDecl and Object
+	Context REFERENCE -> use aliases, type parameter names, unaliased types of used packages or this package
+*/
