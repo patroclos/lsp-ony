@@ -171,8 +171,8 @@ actor WorkspaceManager
 		let compiler = BuildCompiler[Sources, Program](ParseProgramFiles(resolve_sources, include_builtin))
 			.next[Program](Syntax)
 			.next[Program](Sugar)
-			//.next[Program](Names)
-			//.next[Program](Refer)
+			.next[Program](Names)
+			.next[Program](Refer)
 			.on_errors({(pass, errs) =>
 				for err in errs.values() do
 					_log(l.Error) and _log.log("Encountered error in compilation: " + err.message + " in " + err.pos.source().path() + " " + err.pos.cursor()._1.string() + ":" + err.pos.cursor()._2.string())
