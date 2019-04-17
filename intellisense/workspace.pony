@@ -74,6 +74,7 @@ actor WorkspaceManager
 		end
 
 	be declaration(file_path: String, cursor': (USize, USize), prom: Promise[Goto val] tag) =>
+		@pony_triggergc[None](@pony_ctx[Pointer[None]]())
 		match _program | let prog: Program =>
 			let cursor = Cursor(cursor'._1, cursor'._2, file_path)
 
@@ -170,8 +171,8 @@ actor WorkspaceManager
 		let compiler = BuildCompiler[Sources, Program](ParseProgramFiles(resolve_sources, include_builtin))
 			.next[Program](Syntax)
 			.next[Program](Sugar)
-			.next[Program](Names)
-			.next[Program](Refer)
+			//.next[Program](Names)
+			//.next[Program](Refer)
 			.on_errors({(pass, errs) =>
 				for err in errs.values() do
 					_log(l.Error) and _log.log("Encountered error in compilation: " + err.message + " in " + err.pos.source().path() + " " + err.pos.cursor()._1.string() + ":" + err.pos.cursor()._2.string())
@@ -181,7 +182,7 @@ actor WorkspaceManager
 				manager._process_program(prog)
 			})
 
-		let sources: Array[Source] iso = recover Array[Source] end
+		let sources: Array[Source] trn = recover Array[Source] end
 
 		try
 			(let pkgPath, let sources') = resolve_sources(_root_folder.path, ".")?
