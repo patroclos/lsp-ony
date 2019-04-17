@@ -1,0 +1,6 @@
+[submodule "jay"]
+	path = jay
+	url = https://github.com/patroclos/jay
+[submodule "ponycc"]
+	path = ponycc
+	url = https://github.com/patroclos/ponycc

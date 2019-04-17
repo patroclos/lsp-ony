@@ -11,7 +11,7 @@ class val Response is RpcObject
 	fun result(): (this->J | this->RpcError val) => _result
 
 	fun json(): JObj => JObj
-		* ("jsonrpc", "2.0")
-		* ("id", id())
-		* ("result", try _result as J else NotSet end)
-		* ("error", try (_result as RpcError).json() else NotSet end)
+		+ ("jsonrpc", "2.0")
+		+ ("id", id())
+		+ ("result", try _result as J else NotSet end)
+		+ ("error", try (_result as RpcError).json() else NotSet end)

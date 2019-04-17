@@ -2,7 +2,7 @@
   "deps": [
     {
       "type": "local",
-      "local-path": "../ponycc"
+      "local-path": "ponycc"
     },
     {
       "type": "local",

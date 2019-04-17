@@ -73,10 +73,10 @@ class RequestHandler is LspNotify
 		let params = req.params()
 		match req.method()
 		| "initialize" =>
-			let hover_support = (JLens * "capabilities" * "textDocument" * "hover" * "contentFormat")(params)
+			let hover_support = JLens("capabilities")("textDocument")("hover")("contentFormat").json(params)
 			_log(Info) and _log.log("Hover contentFormats: " + (hover_support).string())
 
-			let root_path = ((JLens * "rootUri").map[String](UriToPath) or (JLens * "rootPath"))(params)
+			let root_path = (JLens("rootUri").map[String](UriToPath) / JLens("rootPath")).json(params)
 			try
 				let ws = _wsc.createWorkspace(root_path as String)?
 				_workspace = ws
@@ -84,18 +84,18 @@ class RequestHandler is LspNotify
 			end
 
 			let res = (JObj
-				* ("capabilities", JObj
-					* ("textDocumentSync", JObj
-						* ("openClose", true)
-						* ("change", I64(1))
-						* ("save", JObj
-							* ("includeText", true)
+				+ ("capabilities", JObj
+					+ ("textDocumentSync", JObj
+						+ ("openClose", true)
+						+ ("change", I64(1))
+						+ ("save", JObj
+							+ ("includeText", true)
 						  )
 					  )
 					// * ("hoverProvider", true)
-					* ("definitionProvider", true)
-					* ("completionProvider", JObj
-						* ("resolveProvider", true)
+					+ ("definitionProvider", true)
+					+ ("completionProvider", JObj
+						+ ("resolveProvider", true)
 					  )
 				  )
 				)
@@ -107,22 +107,22 @@ class RequestHandler is LspNotify
 			_log(Info) and _log.log("Fully Initialized")
 
 			let req' = JObj
-				* ("type", I64(3))
-				* ("message", "Lil Sebastian reporting for duty! What are my orders?")
-				* ("actions", JArr
-					+ (JObj * ("title", "Do Stuff"))
-					+ (JObj * ("title", "Eat Grass"))
-					+ (JObj * ("title", "Bite Dust"))
+				+ ("type", I64(3))
+				+ ("message", "Lil Sebastian reporting for duty! What are my orders?")
+				+ ("actions", JArr
+					+ (JObj + ("title", "Do Stuff"))
+					+ (JObj + ("title", "Eat Grass"))
+					+ (JObj + ("title", "Bite Dust"))
 				  )
 			let showMsgReq = rpc.Request(420, "window/showMessageRequest", req') 
 			request("window/showMessageRequest", req', {(response) =>
 				_log(Info) and _log.log("Lis Sebastian says: " + response.result().string())
 			})
 
-			request("workspace/configuration", JObj * ("items", JArr + (JObj * ("section", "ponyLanguageServer"))), {(response) =>
+			request("workspace/configuration", JObj + ("items", JArr + (JObj + ("section", "ponyLanguageServer"))), {(response) =>
 				_log(Info) and _log.log("Configuration 1: " + response.result().string())
 			})
-			request("workspace/configuration", JObj * ("items", JArr + (JObj * ("section", "ponyLanguageServer"))), {(response) =>
+			request("workspace/configuration", JObj + ("items", JArr + (JObj + ("section", "ponyLanguageServer"))), {(response) =>
 				_log(Info) and _log.log("Configuration: " + response.result().string())
 				match _workspace | let ws: WorkspaceManager =>
 					try
@@ -135,39 +135,36 @@ class RequestHandler is LspNotify
 
 		| "textDocument/didChange" =>
 			try
-				let path = (JLens * "textDocument" * "uri").map[String](UriToPath)(params) as String
+				let path = JLens("textDocument")("uri").map[String](UriToPath).json(params) as String
 
 				// TODO: should we also handle range updates?
-				let content_changes = ((JLens * "contentChanges").elements() * "text")(params) as JArr
-				for change' in content_changes.data.values() do
-					let text = change' as String
-					_source_overrides = _source_overrides(path) = text
-					_recompile()
-				end
+				let text = JLens("contentChanges")(0)("text").json(params) as String
+				_source_overrides = _source_overrides(path) = text
+				_recompile()
 			end
 		// TODO: register local override until changes are saved
 		| "textDocument/didSave" =>
 			try
-				let path = (JLens * "textDocument" * "uri").map[String](UriToPath)(params) as String
+				let path = JLens("textDocument")("uri").map[String](UriToPath).json(params) as String
 				_source_overrides = _source_overrides.remove(path)?
 			end
 		// TODO: drop local overrides
 		| "textDocument/hover" =>
 			let path = try
-						(JLens * "textDocument" * "uri").map[String](UriToPath) (params) as String
+						JLens("textDocument")("uri").map[String](UriToPath).json(params) as String
 					   else "" end
 
-			let position' = JLens * "position"
-			let line = (position' * "line")(params)
-			let char = (position' * "character")(params)
+			let position' = JLens("position")
+			let line = position'("line").json(params)
+			let char = position'("character").json(params)
 
 			try
 				let prom = Promise[String]
 				  .> next[None]({(contents) =>
 					let res = (JObj
-						* ("contents", JObj
-							* ("kind", "markdown")
-							* ("value", contents)
+						+ ("contents", JObj
+							+ ("kind", "markdown")
+							+ ("value", contents)
 							)
 					)
 					_writer.send(rpc.Response(req.id(), res))
@@ -181,12 +178,12 @@ class RequestHandler is LspNotify
 		
 		| "textDocument/definition" =>
 			let path = try
-						(JLens * "textDocument" * "uri").map[String](UriToPath) (params) as String
+						JLens("textDocument")("uri").map[String](UriToPath).json(params) as String
 					   else "" end
 
-			let position' = JLens * "position"
-			let line = (position' * "line")(params)
-			let char = (position' * "character")(params)
+			let position' = JLens("position")
+			let line = position'("line").json(params)
+			let char = position'("character").json(params)
 
 			try
 				let prom = Promise[Goto val]
@@ -195,15 +192,15 @@ class RequestHandler is LspNotify
 					for (path, range) in goto.locations.values() do
 						try
 							res = res + (JObj
-								* ("uri", PathToUri(path)?)
-								* ("range", JObj
-									* ("start", JObj
-										* ("line", range.start_pos._1.i64())
-										* ("character", range.start_pos._2.i64())
+								+ ("uri", PathToUri(path)?)
+								+ ("range", JObj
+									+ ("start", JObj
+										+ ("line", range.start_pos._1.i64())
+										+ ("character", range.start_pos._2.i64())
 									)
-									* ("end", JObj
-										* ("line", range.end_pos._1.i64())
-										* ("character", range.end_pos._2.i64())
+									+ ("end", JObj
+										+ ("line", range.end_pos._1.i64())
+										+ ("character", range.end_pos._2.i64())
 									)
 								))
 						end
@@ -220,12 +217,12 @@ class RequestHandler is LspNotify
 		| "textDocument/completion" =>
 		// TODO implement real completion, not this hover bullshit
 			let path = try
-						(JLens * "textDocument" * "uri").map[String](UriToPath) (params) as String
+						JLens("textDocument")("uri").map[String](UriToPath).json(params) as String
 					   else "" end
 
-			let position' = JLens * "position"
-			let line = (position' * "line")(params)
-			let char = (position' * "character")(params)
+			let position' = JLens("position")
+			let line = position'("line").json(params)
+			let char = position'("character").json(params)
 
 			try
 				let prom = Promise[Completion val]
@@ -233,23 +230,23 @@ class RequestHandler is LspNotify
 					var res = JArr
 					for item in completion.completions.values() do
 						res = res + (JObj
-							* ("label", item.label)
-							* ("kind", item.kind)
-							* ("detail", item.detail)
-							* ("documentation", item.documentation)
-							* ("deprecated", item.deprecated)
-							* ("textEdit", JObj
-								* ("range", JObj
-									* ("start", JObj
-										* ("line", item.text_edit.range.start_pos._1.i64())
-										* ("character", item.text_edit.range.start_pos._2.i64())
+							+ ("label", item.label)
+							+ ("kind", item.kind)
+							+ ("detail", item.detail)
+							+ ("documentation", item.documentation)
+							+ ("deprecated", item.deprecated)
+							+ ("textEdit", JObj
+								+ ("range", JObj
+									+ ("start", JObj
+										+ ("line", item.text_edit.range.start_pos._1.i64())
+										+ ("character", item.text_edit.range.start_pos._2.i64())
 									  )
-									* ("end", JObj
-										* ("line", item.text_edit.range.end_pos._1.i64())
-										* ("character", item.text_edit.range.end_pos._2.i64())
+									+ ("end", JObj
+										+ ("line", item.text_edit.range.end_pos._1.i64())
+										+ ("character", item.text_edit.range.end_pos._2.i64())
 									  )
 								  )
-								* ("newText", item.text_edit.new_text)
+								+ ("newText", item.text_edit.new_text)
 							)
 						)
 					end

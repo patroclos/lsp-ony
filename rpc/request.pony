@@ -18,10 +18,10 @@ class val Request is RpcObject
 
 	fun json(): JObj =>
 		JObj
-			* ("jsonrpc", "2.0")
-			* ("method", method())
-			* ("id", if is_notification() then NotSet else id() end)
-			* ("params", match _params
+			+ ("jsonrpc", "2.0")
+			+ ("method", method())
+			+ ("id", if is_notification() then NotSet else id() end)
+			+ ("params", match _params
 						 | None => NotSet
 						 else params()
 						 end)

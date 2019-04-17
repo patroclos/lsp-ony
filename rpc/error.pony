@@ -15,8 +15,8 @@ class val RpcError
 		RpcError(code, message', data)
 	
 	fun json(): JObj => JObj
-		* ("code", code)
-		* ("message", message)
-		* ("data", data)
+		+ ("code", code)
+		+ ("message", message)
+		+ ("data", data)
 	
 	fun string(): String iso^ => json().string().string()
